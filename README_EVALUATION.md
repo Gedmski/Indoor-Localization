@@ -18,6 +18,20 @@ python -m src.compare --models knn xgb mlp
 python -m src.cross_validate --model xgb
 ```
 
+### Building 10 Dataset (final_data.csv)
+
+This dataset uses AP1..AP143 and room-level labels. The evaluation workflow
+standardizes columns and runs room and floor classification.
+
+```bash
+python run_bldg10_evaluation.py
+```
+
+Outputs:
+- `reports/bldg10/bldg10_results.json`
+- `reports/bldg10/bldg10_evaluation_report.md`
+- `reports/bldg10/plots/*.png`
+
 ### Expected Output
 
 The evaluation will produce:
