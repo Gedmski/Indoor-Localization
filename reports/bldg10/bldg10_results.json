@@ -1,7 +1,7 @@
 {
   "dataset_info": {
     "samples": 1366,
-    "wap_features": 143,
+    "ap_features": 143,
     "room_classes": 30,
     "room_class_min_count": 41,
     "room_class_counts": {
@@ -45,38 +45,30 @@
   },
   "room_cv": {
     "knn": {
-      "accuracy_mean": 0.9384962968904575,
-      "accuracy_std": 0.01757954683397274,
-      "precision_macro_mean": 0.9448417704300057,
-      "precision_macro_std": 0.015720363985290014,
-      "recall_macro_mean": 0.9377983312983312,
-      "recall_macro_std": 0.01899121781254573,
-      "f1_macro_mean": 0.9380416029173693,
-      "f1_macro_std": 0.018892345085115104
+      "accuracy_mean": 0.9502152348867678,
+      "accuracy_std": 0.008873497722334426,
+      "f1_macro_mean": 0.9499274778461316,
+      "f1_macro_std": 0.008776635767779581
     },
     "mlp": {
-      "accuracy_mean": 0.9568113152054758,
-      "accuracy_std": 0.010702984833062609,
-      "precision_macro_mean": 0.9616542847131082,
-      "precision_macro_std": 0.010070304725135355,
-      "recall_macro_mean": 0.9567716357716357,
-      "recall_macro_std": 0.010754981104506177,
-      "f1_macro_mean": 0.9568620553750652,
-      "f1_macro_std": 0.010980545510722126
+      "accuracy_mean": 0.9582658217694714,
+      "accuracy_std": 0.007570734280595172,
+      "f1_macro_mean": 0.9592647120782333,
+      "f1_macro_std": 0.007708088440530679
     }
   },
   "room_holdout": {
     "knn": {
-      "accuracy": 0.948905109489051,
-      "precision_macro": 0.9555850168350168,
-      "recall_macro": 0.9492216117216117,
-      "f1_macro": 0.9503226857994659
+      "accuracy": 0.9452554744525548,
+      "precision_macro": 0.9531607744107744,
+      "recall_macro": 0.945517908017908,
+      "f1_macro": 0.9464191770275362
     },
     "mlp": {
-      "accuracy": 0.9379562043795621,
-      "precision_macro": 0.9447582972582972,
-      "recall_macro": 0.938017908017908,
-      "f1_macro": 0.9385702344660388
+      "accuracy": 0.9598540145985401,
+      "precision_macro": 0.9676707551707552,
+      "recall_macro": 0.9594729344729345,
+      "f1_macro": 0.9614696872901207
     }
   },
   "floor_holdout": {
@@ -85,8 +77,6 @@
     "recall_macro": 1.0,
     "f1_macro": 1.0
   },
-  "best_room_model": "knn",
-  "notes": [
-    "xgboost not available; xgb model skipped"
-  ]
+  "best_room_model": "mlp",
+  "building_id": 10
 }

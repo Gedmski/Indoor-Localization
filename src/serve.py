@@ -1,184 +1,185 @@
-# src/serve.py
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Optional
-import pandas as pd
-from joblib import load
-from pathlib import Path
 import argparse
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException
+from joblib import load
+from pydantic import BaseModel, Field
+
+from .data_io import BUILDING_ID, build_inference_frame
 
 
 class WifiSample(BaseModel):
-    """Input model for Wi-Fi RSSI data."""
-    rssi: Dict[str, float]  # { "WAP001": -78, "WAP002": -110, ... }
-    phone_id: Optional[int] = None
+    """Input model for Building 10 RSSI scans."""
+
+    rssi: Dict[str, float] = Field(
+        ...,
+        description="RSSI dictionary keyed by AP names (for example AP1..AP143).",
+    )
+    top_k: int = Field(3, ge=1, le=10, description="Number of room candidates to return.")
+
+
+class RoomCandidate(BaseModel):
+    room_id: str
+    probability: float
 
 
 class LocationPrediction(BaseModel):
-    """Output model for location predictions."""
     building: int
     floor: int
-    x_m: float
-    y_m: float
-    confidence_building: Optional[float] = None
+    room_id: str
+    confidence_room: Optional[float] = None
     confidence_floor: Optional[float] = None
+    candidates: List[RoomCandidate] = Field(default_factory=list)
 
 
 app = FastAPI(
-    title="Indoor Localization API",
-    description="Wi-Fi fingerprinting based indoor positioning system",
-    version="1.0.0"
+    title="Building 10 Indoor Localization API",
+    description="Room and floor inference for the Building 10 dataset.",
+    version="2.0.0",
 )
 
-# Global model variables
-building_model = None
+room_model = None
 floor_model = None
-xy_model = None
-xy_per_building_models = {}
-model_type = "knn"  # Default model type
-
-# AP columns from training (will be loaded from model)
-WAP_COLS = None
+model_metadata: Dict[str, object] = {}
+ap_columns: List[str] = []
+model_dir = Path(__file__).parent.parent / "models" / "bldg10"
 
 
-def load_models(model_type_arg="knn"):
-    """Load trained models from disk."""
-    global building_model, floor_model, xy_model, xy_per_building_models, WAP_COLS, model_type
+def _resolve_scan_value(scan: Dict[str, float], ap_name: str, default_value: float = -100.0):
+    """Support AP and WAP aliases for easier integration."""
+    if ap_name in scan:
+        return scan[ap_name]
+    suffix = ap_name[2:]
+    if suffix.isdigit():
+        wap_alias = f"WAP{int(suffix):03d}"
+        if wap_alias in scan:
+            return scan[wap_alias]
+    return default_value
 
-    model_type = model_type_arg
-    models_dir = Path(__file__).parent.parent / "models"
 
-    try:
-        building_model = load(models_dir / f"building_{model_type}.joblib")
-        floor_model = load(models_dir / f"floor_{model_type}.joblib")
-        xy_model = load(models_dir / f"xy_{model_type}_global.joblib")
+def load_models(model_path: str | Path = model_dir):
+    """Load Building 10 models and metadata from disk."""
+    global room_model, floor_model, model_metadata, ap_columns, model_dir
 
-        # Load per-building models if they exist
-        for building_id in [0, 1, 2]:
-            model_path = models_dir / f"xy_{model_type}_building_{building_id}.joblib"
-            if model_path.exists():
-                xy_per_building_models[building_id] = load(model_path)
+    model_dir = Path(model_path)
+    metadata_path = model_dir / "metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
 
-        # Extract AP columns from the building model
-        # This assumes the model has an 'ap' step that stores keep_cols
-        has_ap_step = (hasattr(building_model, 'named_steps') and
-                      'ap' in building_model.named_steps)
-        if has_ap_step:
-            WAP_COLS = building_model.named_steps['ap'].keep_cols
-        else:
-            # Fallback: generate WAP column names
-            WAP_COLS = [f"WAP{i:03d}" for i in range(1, 521)]
+    model_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    room_model_name = model_metadata.get("room_model", "knn")
 
-        print(f"Loaded {model_type.upper()} models from {models_dir}")
-        print(f"Using {len(WAP_COLS)} AP features")
+    room_model_path = model_dir / f"bldg10_room_{room_model_name}.joblib"
+    floor_model_path = model_dir / "bldg10_floor_knn.joblib"
+    if not room_model_path.exists() or not floor_model_path.exists():
+        raise FileNotFoundError("Room or floor model file is missing.")
 
-    except Exception as e:
-        print(f"Error loading models: {e}")
-        raise
+    room_model = load(room_model_path)
+    floor_model = load(floor_model_path)
+    ap_columns = [str(column) for column in model_metadata.get("ap_columns", [])]
+    if not ap_columns:
+        raise ValueError("No AP columns found in metadata.")
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Load models when the server starts."""
-    load_models(model_type)
+    load_models(model_dir)
 
 
 @app.post("/predict", response_model=LocationPrediction)
 async def predict_location(sample: WifiSample):
-    """Predict building, floor, and position from Wi-Fi RSSI data.
-
-    Args:
-        sample: Wi-Fi RSSI measurements
-
-    Returns:
-        Location prediction with building, floor, and coordinates
-    """
-    if building_model is None:
-        raise HTTPException(status_code=500, detail="Models not loaded")
+    if room_model is None or floor_model is None:
+        raise HTTPException(status_code=500, detail="Models are not loaded.")
 
     try:
-        # Prepare input data
-        rssi_data = sample.rssi
+        normalized_scan = {
+            ap_name: float(_resolve_scan_value(sample.rssi, ap_name)) for ap_name in ap_columns
+        }
+        X = build_inference_frame(normalized_scan, ap_columns)
 
-        # Create feature vector with all WAP columns
-        features = {}
-        for wap in WAP_COLS:
-            # Default to -110 for missing APs
-            features[wap] = rssi_data.get(wap, -110)
+        predicted_room = str(room_model.predict(X)[0])
+        predicted_floor = int(floor_model.predict(X)[0])
 
-        # Add phone_id if provided (though our baseline models don't use it)
-        if sample.phone_id is not None:
-            features['PHONEID'] = sample.phone_id
+        room_confidence = None
+        floor_confidence = None
+        candidates: List[RoomCandidate] = []
 
-        # Convert to DataFrame
-        X = pd.DataFrame([features])
+        if hasattr(room_model, "predict_proba"):
+            room_probs = room_model.predict_proba(X)[0]
+            room_labels = [str(label) for label in room_model.classes_]
+            ranked = sorted(
+                zip(room_labels, room_probs), key=lambda item: item[1], reverse=True
+            )
+            room_confidence = float(ranked[0][1])
+            candidates = [
+                RoomCandidate(room_id=room_id, probability=float(probability))
+                for room_id, probability in ranked[: sample.top_k]
+            ]
 
-        # Make predictions
-        building_pred = int(building_model.predict(X)[0])
-        floor_pred = int(floor_model.predict(X)[0])
-
-        # Use building-specific position model if available
-        if building_pred in xy_per_building_models:
-            xy_pred = xy_per_building_models[building_pred].predict(X)[0]
-        else:
-            xy_pred = xy_model.predict(X)[0]
+        if hasattr(floor_model, "predict_proba"):
+            floor_probs = floor_model.predict_proba(X)[0]
+            floor_confidence = float(max(floor_probs))
 
         return LocationPrediction(
-            building=building_pred,
-            floor=floor_pred,
-            x_m=float(xy_pred[0]),
-            y_m=float(xy_pred[1])
+            building=int(model_metadata.get("building_id", BUILDING_ID)),
+            floor=predicted_floor,
+            room_id=predicted_room,
+            confidence_room=room_confidence,
+            confidence_floor=floor_confidence,
+            candidates=candidates,
         )
-
-    except Exception as e:
-        raise HTTPException(status_code=400,
-                            detail=f"Prediction error: {str(e)}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Prediction error: {exc}") from exc
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {
         "status": "healthy",
-        "models_loaded": building_model is not None,
-        "model_type": model_type
+        "models_loaded": room_model is not None and floor_model is not None,
+        "building_id": model_metadata.get("building_id", BUILDING_ID),
+        "room_model": model_metadata.get("room_model"),
+        "ap_features": len(ap_columns),
     }
 
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information."""
     return {
-        "message": "Indoor Localization API",
-        "version": "1.0.0",
-        "model_type": model_type,
-        "endpoints": {
-            "POST /predict": "Predict location from Wi-Fi RSSI data",
-            "GET /health": "Health check"
-        }
+        "service": "Building 10 Indoor Localization API",
+        "version": "2.0.0",
+        "predict_contract": {
+            "request": {"rssi": {"AP1": -70, "AP2": -100}, "top_k": 3},
+            "response_keys": [
+                "building",
+                "floor",
+                "room_id",
+                "confidence_room",
+                "confidence_floor",
+                "candidates",
+            ],
+        },
     }
 
 
 def main():
-    """Main function for running the server."""
-    parser = argparse.ArgumentParser(description="Run indoor localization API server")
-    parser.add_argument("--model", choices=["knn", "xgb", "mlp"], default="knn",
-                       help="Model type to serve (default: knn)")
-    parser.add_argument("--host", default="0.0.0.0",
-                       help="Host to bind to (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8080,
-                       help="Port to bind to (default: 8080)")
+    parser = argparse.ArgumentParser(description="Run the Building 10 API server.")
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default="models/bldg10",
+        help="Directory containing Building 10 model files and metadata.json",
+    )
+    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
 
-    # Set global model type
-    global model_type
-    model_type = args.model
-
-    print(f"Starting Indoor Localization API server")
-    print(f"Model type: {model_type.upper()}")
-    print(f"Host: {args.host}:{args.port}")
+    load_models(args.model_dir)
 
     import uvicorn
+
     uvicorn.run(app, host=args.host, port=args.port)
 
 

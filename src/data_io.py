@@ -1,70 +1,62 @@
-# src/data_io.py
+from pathlib import Path
+from typing import Dict, Iterable, List
+
 import pandas as pd
 
 
-def load_uji(train_path: str, val_path: str):
-    """Load UJIIndoorLoc training and validation datasets.
-
-    Args:
-        train_path: Path to TrainingData.csv
-        val_path: Path to ValidationData.csv
-
-    Returns:
-        Tuple of (train_df, val_df) pandas DataFrames
-    """
-    train = pd.read_csv(train_path)
-    val = pd.read_csv(val_path)
-    return train, val
+AP_PREFIX = "AP"
+DEFAULT_BLDG10_PATH = Path("data") / "bldg10" / "final_data.csv"
+BUILDING_ID = 10
 
 
-def load_bldg10(final_data_path: str):
-    """Load and standardize the Building 10 dataset.
+def sorted_ap_columns(columns: Iterable[str]) -> List[str]:
+    """Return AP columns in numeric order: AP1, AP2, ..., AP143."""
+    ap_cols = [column for column in columns if column.startswith(AP_PREFIX)]
 
-    The bldg10 dataset uses AP1..AP143 and includes room_id/floor labels.
-    This function normalizes column names and adds expected fields so the
-    existing pipeline can be reused.
+    def _ap_sort_key(column_name: str):
+        suffix = column_name[len(AP_PREFIX):]
+        if suffix.isdigit():
+            return (0, int(suffix))
+        return (1, suffix)
 
-    Args:
-        final_data_path: Path to data/bldg10/final_data.csv
-
-    Returns:
-        Standardized pandas DataFrame with:
-        - WAP* columns (renamed from AP*)
-        - FLOOR (int)
-        - ROOMID (string)
-        - BUILDINGID (int, fixed to 10)
-    """
-    df = pd.read_csv(final_data_path)
-
-    # Rename AP* -> WAP* for compatibility with feature pipeline
-    ap_cols = [c for c in df.columns if c.startswith("AP")]
-    rename_map = {c: f"WAP{c[2:]}" for c in ap_cols}
-    df = df.rename(columns=rename_map)
-
-    # Standardized labels
-    if "floor" in df.columns:
-        df["FLOOR"] = df["floor"].astype(int)
-    if "room_id" in df.columns:
-        df["ROOMID"] = df["room_id"].astype(str)
-
-    # Single-building dataset
-    df["BUILDINGID"] = 10
-
-    return df
+    return sorted(ap_cols, key=_ap_sort_key)
 
 
-if __name__ == "__main__":
-    # Quick test
-    import os
-    print(f"Current working directory: {os.getcwd()}")
-    train_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                              "TrainingData.csv")
-    val_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                            "ValidationData.csv")
-    print(f"Train path: {os.path.abspath(train_path)}")
-    print(f"Val path: {os.path.abspath(val_path)}")
-    train, val = load_uji(train_path, val_path)
-    print(f"Training shape: {train.shape}, Validation shape: {val.shape}")
-    print(f"Training columns (first 10): {train.columns[:10].tolist()}")
-    print("Training BUILDINGID, FLOOR, LATITUDE, LONGITUDE describe:")
-    print(train[['BUILDINGID', 'FLOOR', 'LATITUDE', 'LONGITUDE']].describe())
+def load_bldg10(final_data_path: str | Path = DEFAULT_BLDG10_PATH) -> pd.DataFrame:
+    """Load and standardize the Building 10 dataset."""
+    data_path = Path(final_data_path)
+    if not data_path.exists():
+        raise FileNotFoundError(f"Building 10 dataset not found: {data_path}")
+
+    df = pd.read_csv(data_path)
+
+    required_columns = {"floor", "room_id"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        missing_list = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Missing required columns in dataset: {missing_list}")
+
+    ap_cols = sorted_ap_columns(df.columns)
+    if not ap_cols:
+        raise ValueError("No AP columns were found (expected AP1..AP143).")
+
+    normalized = df.copy()
+    normalized.loc[:, ap_cols] = (
+        normalized.loc[:, ap_cols].apply(pd.to_numeric, errors="coerce").fillna(-100.0)
+    )
+    normalized = normalized.assign(
+        FLOOR=normalized["floor"].astype(int),
+        ROOMID=normalized["room_id"].astype(str),
+        BUILDINGID=BUILDING_ID,
+    )
+    return normalized
+
+
+def build_inference_frame(
+    rssi_scan: Dict[str, float],
+    ap_columns: List[str],
+    missing_value: float = -100.0,
+) -> pd.DataFrame:
+    """Create a one-row feature frame from a raw scan."""
+    row = {ap_name: float(rssi_scan.get(ap_name, missing_value)) for ap_name in ap_columns}
+    return pd.DataFrame([row], columns=ap_columns)

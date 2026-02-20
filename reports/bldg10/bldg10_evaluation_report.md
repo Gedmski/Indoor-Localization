@@ -3,16 +3,16 @@
 ## Dataset Summary
 
 - Samples: 1366
-- WAP features: 143
-- Rooms: 30
-- Floors: 2
+- AP features: 143
+- Room classes: 30
+- Floor classes: 2
 
 ## Room Classification (Cross-Validation)
 
 | Model | Accuracy (mean+/-std) | Macro F1 (mean+/-std) |
 |---|---|---|
-| KNN | 0.9385 +/- 0.0176 | 0.9380 +/- 0.0189 |
-| MLP | 0.9568 +/- 0.0107 | 0.9569 +/- 0.0110 |
+| KNN | 0.9502 +/- 0.0089 | 0.9499 +/- 0.0088 |
+| MLP | 0.9583 +/- 0.0076 | 0.9593 +/- 0.0077 |
 
 ## Holdout Results
 
@@ -20,8 +20,8 @@
 
 | Model | Accuracy | Macro Precision | Macro Recall | Macro F1 |
 |---|---|---|---|---|
-| KNN | 0.9489 | 0.9556 | 0.9492 | 0.9503 |
-| MLP | 0.9380 | 0.9448 | 0.9380 | 0.9386 |
+| KNN | 0.9453 | 0.9532 | 0.9455 | 0.9464 |
+| MLP | 0.9599 | 0.9677 | 0.9595 | 0.9615 |
 
 ### Floor Classification (KNN)
 
@@ -37,16 +37,8 @@ Room class distribution:
 
 Room confusion matrix (normalized):
 
-![](plots/room_confusion_matrix_knn.png)
+![](plots/room_confusion_matrix_mlp.png)
 
 Floor confusion matrix (normalized):
 
 ![](plots/floor_confusion_matrix_knn.png)
-
-Room model comparison (holdout):
-
-![](plots/room_model_metrics.png)
-
-## Notes
-
-- xgboost not available; xgb model skipped
