@@ -6,7 +6,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
 
-from .features import APColumnSelector, RssiCleaner
+from .features import FeatureColumnSelector, ImuCleaner, RssiCleaner
 
 
 def knn_room_pipeline(n_neighbors: int = 7) -> Pipeline:
@@ -14,7 +14,8 @@ def knn_room_pipeline(n_neighbors: int = 7) -> Pipeline:
     return Pipeline(
         [
             ("clean", RssiCleaner()),
-            ("ap", APColumnSelector()),
+            ("imu", ImuCleaner()),
+            ("features", FeatureColumnSelector()),
             ("scale", RobustScaler(with_centering=True)),
             (
                 "clf",
@@ -33,7 +34,8 @@ def mlp_room_pipeline(
     return Pipeline(
         [
             ("clean", RssiCleaner()),
-            ("ap", APColumnSelector()),
+            ("imu", ImuCleaner()),
+            ("features", FeatureColumnSelector()),
             ("scale", RobustScaler(with_centering=True)),
             (
                 "clf",
@@ -52,7 +54,8 @@ def knn_floor_pipeline(n_neighbors: int = 5) -> Pipeline:
     return Pipeline(
         [
             ("clean", RssiCleaner()),
-            ("ap", APColumnSelector()),
+            ("imu", ImuCleaner()),
+            ("features", FeatureColumnSelector()),
             ("scale", RobustScaler(with_centering=True)),
             (
                 "clf",

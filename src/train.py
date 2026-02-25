@@ -8,7 +8,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
 
 from .baselines import knn_floor_pipeline, room_model_factories
-from .data_io import BUILDING_ID, load_bldg10, sorted_ap_columns
+from .data_io import BUILDING_ID, IMU_COLUMNS, load_bldg10, sorted_ap_columns
 
 
 def _classification_metrics(y_true, y_pred) -> Dict[str, float]:
@@ -33,8 +33,10 @@ def train_bldg10_models(
     """Train and persist Building 10 room and floor classifiers."""
     df = load_bldg10(data_path)
     ap_cols = sorted_ap_columns(df.columns)
+    imu_cols = [column for column in IMU_COLUMNS if column in df.columns]
+    feature_cols = ap_cols + imu_cols
 
-    X = df[ap_cols]
+    X = df[feature_cols]
     y_room = df["ROOMID"]
     y_floor = df["FLOOR"]
 
@@ -86,6 +88,9 @@ def train_bldg10_models(
         "room_model": room_model_name,
         "floor_model": "knn",
         "ap_columns": ap_cols,
+        "imu_columns": imu_cols,
+        "feature_columns": feature_cols,
+        "feature_schema_version": 2,
         "train_rows": int(len(X_train)),
         "holdout_rows": int(len(X_holdout)),
         "room_labels": [str(label) for label in room_model.classes_.tolist()],

@@ -2,17 +2,19 @@
 
 ## Dataset Summary
 
-- Samples: 1366
-- AP features: 143
-- Room classes: 30
+- Samples: 2089
+- AP features: 178
+- IMU features: 10
+- Total features: 188
+- Room classes: 47
 - Floor classes: 2
 
 ## Room Classification (Cross-Validation)
 
 | Model | Accuracy (mean+/-std) | Macro F1 (mean+/-std) |
 |---|---|---|
-| KNN | 0.9502 +/- 0.0089 | 0.9499 +/- 0.0088 |
-| MLP | 0.9583 +/- 0.0076 | 0.9593 +/- 0.0077 |
+| KNN | 0.9382 +/- 0.0152 | 0.9364 +/- 0.0151 |
+| MLP | 0.9646 +/- 0.0100 | 0.9642 +/- 0.0100 |
 
 ## Holdout Results
 
@@ -20,8 +22,8 @@
 
 | Model | Accuracy | Macro Precision | Macro Recall | Macro F1 |
 |---|---|---|---|---|
-| KNN | 0.9453 | 0.9532 | 0.9455 | 0.9464 |
-| MLP | 0.9599 | 0.9677 | 0.9595 | 0.9615 |
+| KNN | 0.9402 | 0.9457 | 0.9396 | 0.9389 |
+| MLP | 0.9545 | 0.9603 | 0.9541 | 0.9544 |
 
 ### Floor Classification (KNN)
 

@@ -20,6 +20,18 @@ def main():
             "AP4": -73,
             "AP5": -85,
         },
+        "imu": {
+            "accel_x": 0.01,
+            "accel_y": 0.02,
+            "accel_z": 1.01,
+            "gyro_x": 0.1,
+            "gyro_y": -0.1,
+            "gyro_z": 0.0,
+            "mag_x": -40.0,
+            "mag_y": 5.0,
+            "mag_z": -6.0,
+            "mag_heading": 170.0,
+        },
         "top_k": 3,
     }
 

@@ -5,7 +5,8 @@
 The active system supports one dataset and one building:
 
 - input data: `data/bldg10/final_data.csv`
-- AP features: `AP1..AP143`
+- AP features: `AP1..AP178`
+- IMU features: `accel_x`, `accel_y`, `accel_z`, `gyro_x`, `gyro_y`, `gyro_z`, `mag_x`, `mag_y`, `mag_z`, `mag_heading`
 - prediction outputs: `room_id`, `floor`, fixed `building=10`
 
 No UJI multi-building training or XY regression is in the active runtime path.
@@ -15,13 +16,14 @@ No UJI multi-building training or XY regression is in the active runtime path.
 1. Data standardization
    - `src/data_io.py`
    - loads CSV
-   - enforces required columns: `floor`, `room_id`, `AP*`
+   - enforces required columns: `floor`, `room_id`, `AP*`, IMU fields
    - creates normalized labels: `FLOOR`, `ROOMID`, `BUILDINGID`
 2. Feature processing
    - `src/features.py`
    - replaces missing RSSI (`-100`) with fill value (`-110`)
    - clips RSSI values to stable bounds
-   - enforces AP column ordering for train/inference consistency
+   - imputes IMU values with training medians
+   - enforces AP+IMU column ordering for train/inference consistency
 3. Model pipelines
    - `src/baselines.py`
    - room models: `knn`, `mlp`
@@ -61,6 +63,8 @@ python run_bldg10_server.py --model-dir models/bldg10 --port 8080
 
 - building id
 - AP feature list and order
+- IMU feature list and order
+- combined feature list and schema version
 - selected room model type
 - holdout metrics
 - class labels
@@ -71,8 +75,9 @@ The API relies on this metadata to keep inference aligned with training.
 
 Use this project as a localization microservice:
 
-1. Collect live Wi-Fi scan from app/infrastructure.
-2. Convert scan to payload format: `{"rssi": {"AP1": ..., "AP2": ...}, "top_k": 3}`.
+1. Collect live Wi-Fi scan and IMU readings from app/infrastructure.
+2. Convert scan to payload format:
+   `{"rssi": {"AP1": ..., "AP2": ...}, "imu": {"accel_x": ..., "gyro_x": ..., "mag_heading": ...}, "top_k": 3}`.
 3. Call `POST /predict`.
 4. Use response fields in navigation layer:
    - `building` -> building selector (always 10)

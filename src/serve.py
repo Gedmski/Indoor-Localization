@@ -10,13 +10,29 @@ from pydantic import BaseModel, Field
 from .data_io import BUILDING_ID, build_inference_frame
 
 
+class ImuSample(BaseModel):
+    """Required IMU fields used by the Building 10 model."""
+
+    accel_x: float
+    accel_y: float
+    accel_z: float
+    gyro_x: float
+    gyro_y: float
+    gyro_z: float
+    mag_x: float
+    mag_y: float
+    mag_z: float
+    mag_heading: float
+
+
 class WifiSample(BaseModel):
-    """Input model for Building 10 RSSI scans."""
+    """Input model for Building 10 AP + IMU scans."""
 
     rssi: Dict[str, float] = Field(
         ...,
-        description="RSSI dictionary keyed by AP names (for example AP1..AP143).",
+        description="RSSI dictionary keyed by AP names (for example AP1..AP178).",
     )
+    imu: ImuSample = Field(..., description="Required IMU readings used by the model.")
     top_k: int = Field(3, ge=1, le=10, description="Number of room candidates to return.")
 
 
@@ -44,6 +60,7 @@ room_model = None
 floor_model = None
 model_metadata: Dict[str, object] = {}
 ap_columns: List[str] = []
+imu_columns: List[str] = []
 model_dir = Path(__file__).parent.parent / "models" / "bldg10"
 
 
@@ -61,7 +78,7 @@ def _resolve_scan_value(scan: Dict[str, float], ap_name: str, default_value: flo
 
 def load_models(model_path: str | Path = model_dir):
     """Load Building 10 models and metadata from disk."""
-    global room_model, floor_model, model_metadata, ap_columns, model_dir
+    global room_model, floor_model, model_metadata, ap_columns, imu_columns, model_dir
 
     model_dir = Path(model_path)
     metadata_path = model_dir / "metadata.json"
@@ -81,6 +98,11 @@ def load_models(model_path: str | Path = model_dir):
     ap_columns = [str(column) for column in model_metadata.get("ap_columns", [])]
     if not ap_columns:
         raise ValueError("No AP columns found in metadata.")
+    imu_columns = [str(column) for column in model_metadata.get("imu_columns", [])]
+    if not imu_columns:
+        raise ValueError(
+            "No IMU columns found in metadata. Retrain models with feature_schema_version=2."
+        )
 
 
 @app.on_event("startup")
@@ -97,7 +119,15 @@ async def predict_location(sample: WifiSample):
         normalized_scan = {
             ap_name: float(_resolve_scan_value(sample.rssi, ap_name)) for ap_name in ap_columns
         }
-        X = build_inference_frame(normalized_scan, ap_columns)
+        imu_payload = (
+            sample.imu.model_dump()
+            if hasattr(sample.imu, "model_dump")
+            else sample.imu.dict()
+        )
+        normalized_imu = {
+            imu_name: float(imu_payload.get(imu_name, 0.0)) for imu_name in imu_columns
+        }
+        X = build_inference_frame(normalized_scan, normalized_imu, ap_columns, imu_columns)
 
         predicted_room = str(room_model.predict(X)[0])
         predicted_floor = int(floor_model.predict(X)[0])
@@ -142,6 +172,8 @@ async def health_check():
         "building_id": model_metadata.get("building_id", BUILDING_ID),
         "room_model": model_metadata.get("room_model"),
         "ap_features": len(ap_columns),
+        "imu_features": len(imu_columns),
+        "total_features": len(ap_columns) + len(imu_columns),
     }
 
 
@@ -151,7 +183,22 @@ async def root():
         "service": "Building 10 Indoor Localization API",
         "version": "2.0.0",
         "predict_contract": {
-            "request": {"rssi": {"AP1": -70, "AP2": -100}, "top_k": 3},
+            "request": {
+                "rssi": {"AP1": -70, "AP2": -100},
+                "imu": {
+                    "accel_x": 0.01,
+                    "accel_y": 0.02,
+                    "accel_z": 1.01,
+                    "gyro_x": 0.1,
+                    "gyro_y": -0.1,
+                    "gyro_z": 0.0,
+                    "mag_x": -40.0,
+                    "mag_y": 5.0,
+                    "mag_z": -6.0,
+                    "mag_heading": 170.0,
+                },
+                "top_k": 3,
+            },
             "response_keys": [
                 "building",
                 "floor",

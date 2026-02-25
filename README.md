@@ -3,6 +3,7 @@
 This repository is now scoped to **Building 10 only** using:
 
 - dataset: `data/bldg10/final_data.csv`
+- features: `AP1..AP178` + IMU (`accel_*`, `gyro_*`, `mag_*`, `mag_heading`)
 - targets: `ROOMID` (room), `FLOOR` (floor)
 - building id: fixed to `10`
 
@@ -30,6 +31,18 @@ Request:
     "AP2": -78,
     "AP3": -100
   },
+  "imu": {
+    "accel_x": 0.01,
+    "accel_y": 0.02,
+    "accel_z": 1.01,
+    "gyro_x": 0.1,
+    "gyro_y": -0.1,
+    "gyro_z": 0.0,
+    "mag_x": -40.0,
+    "mag_y": 5.0,
+    "mag_z": -6.0,
+    "mag_heading": 170.0
+  },
   "top_k": 3
 }
 ```
@@ -53,8 +66,8 @@ Response:
 
 ## Active files
 
-- `src/data_io.py`: dataset loading, AP ordering, inference frame builder
-- `src/features.py`: RSSI cleaning and AP column selection
+- `src/data_io.py`: dataset loading, AP ordering, IMU schema, inference frame builder
+- `src/features.py`: RSSI + IMU cleaning and feature column selection
 - `src/baselines.py`: room/floor model pipelines
 - `src/train.py`: model training and model artifact export
 - `src/evaluate_bldg10.py`: evaluation report and confusion plots
@@ -71,7 +84,7 @@ Training writes to `models/bldg10/`:
 - `bldg10_floor_knn.joblib`
 - `metadata.json`
 
-The API loads `metadata.json` to discover AP feature order and model filenames.
+The API loads `metadata.json` to discover AP/IMU feature order and model filenames.
 
 ## Docs
 

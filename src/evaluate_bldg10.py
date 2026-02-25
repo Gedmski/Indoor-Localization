@@ -14,7 +14,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from .baselines import knn_floor_pipeline, room_model_factories
-from .data_io import load_bldg10, sorted_ap_columns
+from .data_io import IMU_COLUMNS, load_bldg10, sorted_ap_columns
 
 
 def _classification_metrics(y_true, y_pred) -> Dict[str, float]:
@@ -95,6 +95,8 @@ def _write_markdown_report(
         handle.write("## Dataset Summary\n\n")
         handle.write(f"- Samples: {dataset_info['samples']}\n")
         handle.write(f"- AP features: {dataset_info['ap_features']}\n")
+        handle.write(f"- IMU features: {dataset_info['imu_features']}\n")
+        handle.write(f"- Total features: {dataset_info['total_features']}\n")
         handle.write(f"- Room classes: {dataset_info['room_classes']}\n")
         handle.write(f"- Floor classes: {dataset_info['floor_classes']}\n\n")
 
@@ -185,7 +187,9 @@ def main():
 
     df = load_bldg10(args.data)
     ap_cols = sorted_ap_columns(df.columns)
-    X = df[ap_cols]
+    imu_cols = [column for column in IMU_COLUMNS if column in df.columns]
+    feature_cols = ap_cols + imu_cols
+    X = df[feature_cols]
     y_room = df["ROOMID"]
     y_floor = df["FLOOR"]
 
@@ -270,6 +274,8 @@ def main():
         "dataset_info": {
             "samples": int(len(df)),
             "ap_features": int(len(ap_cols)),
+            "imu_features": int(len(imu_cols)),
+            "total_features": int(len(feature_cols)),
             "room_classes": int(y_room.nunique()),
             "room_class_min_count": min_room_count,
             "room_class_counts": {str(k): int(v) for k, v in room_counts.items()},
