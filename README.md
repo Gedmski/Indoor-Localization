@@ -91,4 +91,5 @@ The API loads `metadata.json` to discover AP/IMU feature order and model filenam
 Implementation details and integration guidance:
 
 - `docs/BUILDING10_IMPLEMENTATION.md`
+- `docs/NAV_LOCALIZATION_INTEGRATION.md`
 - `archive/legacy_uji/README.md`

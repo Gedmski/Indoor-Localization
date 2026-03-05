@@ -6,3 +6,4 @@ uvicorn
 joblib
 matplotlib
 seaborn
+requests
