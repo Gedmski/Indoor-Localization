@@ -7,33 +7,50 @@ from fastapi import FastAPI, HTTPException
 from joblib import load
 from pydantic import BaseModel, Field
 
+try:
+    from pydantic import model_validator
+except ImportError:  # pragma: no cover - Pydantic v1 fallback
+    model_validator = None
+    from pydantic import root_validator
+
 from .data_io import BUILDING_ID, build_inference_frame
 
 
-class ImuSample(BaseModel):
-    """Required IMU fields used by the Building 10 model."""
-
-    accel_x: float
-    accel_y: float
-    accel_z: float
-    gyro_x: float
-    gyro_y: float
-    gyro_z: float
-    mag_x: float
-    mag_y: float
-    mag_z: float
-    mag_heading: float
-
-
 class WifiSample(BaseModel):
-    """Input model for Building 10 AP + IMU scans."""
+    """Input model for flexible RSSI and IMU scans."""
 
     rssi: Dict[str, float] = Field(
-        ...,
-        description="RSSI dictionary keyed by AP names (for example AP1..AP178).",
+        default_factory=dict,
+        description=(
+            "Optional RSSI dictionary keyed by AP names (for example AP1..AP178). "
+            "Omitted APs are filled with the default missing RSSI value."
+        ),
     )
-    imu: ImuSample = Field(..., description="Required IMU readings used by the model.")
+    imu: Dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Optional motion sensor dictionary. Recognized keys include accel_x, accel_y, "
+            "accel_z, gyro_x, gyro_y, gyro_z, mag_x, mag_y, mag_z, and mag_heading. "
+            "Omitted IMU values are filled with 0.0."
+        ),
+    )
     top_k: int = Field(3, ge=1, le=10, description="Number of room candidates to return.")
+
+    if model_validator is not None:
+
+        @model_validator(mode="after")
+        def validate_modalities(self):
+            if not self.rssi and not self.imu:
+                raise ValueError("At least one of 'rssi' or 'imu' must be provided.")
+            return self
+
+    else:
+
+        @root_validator
+        def validate_modalities(cls, values):
+            if not values.get("rssi") and not values.get("imu"):
+                raise ValueError("At least one of 'rssi' or 'imu' must be provided.")
+            return values
 
 
 class RoomCandidate(BaseModel):
@@ -119,14 +136,7 @@ async def predict_location(sample: WifiSample):
         normalized_scan = {
             ap_name: float(_resolve_scan_value(sample.rssi, ap_name)) for ap_name in ap_columns
         }
-        imu_payload = (
-            sample.imu.model_dump()
-            if hasattr(sample.imu, "model_dump")
-            else sample.imu.dict()
-        )
-        normalized_imu = {
-            imu_name: float(imu_payload.get(imu_name, 0.0)) for imu_name in imu_columns
-        }
+        normalized_imu = {imu_name: float(sample.imu.get(imu_name, 0.0)) for imu_name in imu_columns}
         X = build_inference_frame(normalized_scan, normalized_imu, ap_columns, imu_columns)
 
         predicted_room = str(room_model.predict(X)[0])
@@ -182,22 +192,35 @@ async def root():
     return {
         "service": "Building 10 Indoor Localization API",
         "version": "2.0.0",
+        "supported_input_modes": ["rssi", "imu", "rssi+imu"],
         "predict_contract": {
             "request": {
-                "rssi": {"AP1": -70, "AP2": -100},
-                "imu": {
-                    "accel_x": 0.01,
-                    "accel_y": 0.02,
-                    "accel_z": 1.01,
-                    "gyro_x": 0.1,
-                    "gyro_y": -0.1,
-                    "gyro_z": 0.0,
-                    "mag_x": -40.0,
-                    "mag_y": 5.0,
-                    "mag_z": -6.0,
-                    "mag_heading": 170.0,
-                },
-                "top_k": 3,
+                "examples": {
+                    "rssi_only": {
+                        "rssi": {"AP1": -70, "AP2": -100},
+                        "top_k": 3,
+                    },
+                    "imu_only": {
+                        "imu": {"accel_x": 0.01, "gyro_z": 0.0, "mag_heading": 170.0},
+                        "top_k": 3,
+                    },
+                    "combined": {
+                        "rssi": {"AP1": -70, "AP2": -100},
+                        "imu": {
+                            "accel_x": 0.01,
+                            "accel_y": 0.02,
+                            "accel_z": 1.01,
+                            "gyro_x": 0.1,
+                            "gyro_y": -0.1,
+                            "gyro_z": 0.0,
+                            "mag_x": -40.0,
+                            "mag_y": 5.0,
+                            "mag_z": -6.0,
+                            "mag_heading": 170.0,
+                        },
+                        "top_k": 3,
+                    },
+                }
             },
             "response_keys": [
                 "building",

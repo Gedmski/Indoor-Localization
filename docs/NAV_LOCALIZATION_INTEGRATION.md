@@ -10,7 +10,7 @@ This repository now supports a module-based integration between:
 
 The runtime behavior is:
 
-1. Send AP+IMU scan to localization service.
+1. Send RSSI, IMU, or combined scan to localization service.
 2. Parse prediction (`room_id`, `floor`, confidence, candidates).
 3. Apply confidence threshold (`0.60`) and top-k candidate fallback.
 4. Map predicted room labels to navigation labels (`E1 -> elevator1`, `E2 -> elevator2`).
@@ -57,24 +57,14 @@ session = NavigationSession(
 
 scan = {
     "rssi": {"AP1": -65.0, "AP2": -79.0},
-    "imu": {
-        "accel_x": 0.01,
-        "accel_y": 0.02,
-        "accel_z": 1.00,
-        "gyro_x": 0.0,
-        "gyro_y": 0.0,
-        "gyro_z": 0.0,
-        "mag_x": -40.0,
-        "mag_y": 5.0,
-        "mag_z": -6.0,
-        "mag_heading": 170.0,
-    },
     "top_k": 3,
 }
 
 decision = session.update_and_route(scan=scan, goal_room_id="10.2.63", accessible=True)
 print(decision.as_dict())
 ```
+
+You can supply `scan["rssi"]`, `scan["imu"]`, or both. The service rejects completely empty scans. Missing APs are filled with `-100`, and missing IMU values are filled with `0.0`.
 
 ## RouteDecision Contract
 

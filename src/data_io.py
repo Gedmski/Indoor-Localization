@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Iterable, List, Mapping
 
 import pandas as pd
 
@@ -68,14 +68,16 @@ def load_bldg10(final_data_path: str | Path = DEFAULT_BLDG10_PATH) -> pd.DataFra
 
 
 def build_inference_frame(
-    rssi_scan: Dict[str, float],
-    imu_values: Dict[str, float],
+    rssi_scan: Mapping[str, float] | None,
+    imu_values: Mapping[str, float] | None,
     ap_columns: List[str],
     imu_columns: List[str],
     ap_missing_value: float = -100.0,
     imu_missing_value: float = 0.0,
 ) -> pd.DataFrame:
-    """Create a one-row feature frame from a raw scan."""
+    """Create a one-row feature frame from RSSI, IMU, or combined inputs."""
+    rssi_scan = dict(rssi_scan or {})
+    imu_values = dict(imu_values or {})
     row = {
         ap_name: float(rssi_scan.get(ap_name, ap_missing_value)) for ap_name in ap_columns
     }

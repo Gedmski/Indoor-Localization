@@ -6,6 +6,7 @@ This repository is now scoped to **Building 10 only** using:
 - features: `AP1..AP178` + IMU (`accel_*`, `gyro_*`, `mag_*`, `mag_heading`)
 - targets: `ROOMID` (room), `FLOOR` (floor)
 - building id: fixed to `10`
+- inference inputs: RSSI only, motion sensors only, or both
 
 Legacy multi-building/UJI files were moved to `archive/legacy_uji/`.
 
@@ -31,21 +32,17 @@ Request:
     "AP2": -78,
     "AP3": -100
   },
-  "imu": {
-    "accel_x": 0.01,
-    "accel_y": 0.02,
-    "accel_z": 1.01,
-    "gyro_x": 0.1,
-    "gyro_y": -0.1,
-    "gyro_z": 0.0,
-    "mag_x": -40.0,
-    "mag_y": 5.0,
-    "mag_z": -6.0,
-    "mag_heading": 170.0
-  },
   "top_k": 3
 }
 ```
+
+You can also send:
+
+- RSSI only: include `rssi`
+- Motion only: include `imu`
+- Combined: include both `rssi` and `imu`
+
+At least one modality is required. Missing APs are filled with `-100`, and missing IMU values are filled with `0.0`.
 
 Response:
 

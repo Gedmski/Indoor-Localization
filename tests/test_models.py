@@ -68,3 +68,31 @@ def test_build_inference_frame_uses_sorted_ap_columns():
     assert frame.iloc[0]["accel_x"] == 0.01
     assert frame.iloc[0]["gyro_x"] == 0.0
     assert frame.iloc[0]["mag_heading"] == 180.0
+
+
+def test_build_inference_frame_supports_single_modality_inputs():
+    X = make_synthetic_feature_data(n_samples=10, n_aps=5)
+    ap_cols = sorted_ap_columns(X.columns)
+    imu_cols = [column for column in IMU_COLUMNS if column in X.columns]
+
+    imu_only = build_inference_frame(
+        None,
+        {"accel_x": 0.02, "mag_heading": 90.0},
+        ap_cols,
+        imu_cols,
+    )
+    assert imu_only.iloc[0]["AP1"] == -100.0
+    assert imu_only.iloc[0]["accel_x"] == 0.02
+    assert imu_only.iloc[0]["gyro_x"] == 0.0
+    assert imu_only.iloc[0]["mag_heading"] == 90.0
+
+    rssi_only = build_inference_frame(
+        {"AP2": -67},
+        None,
+        ap_cols,
+        imu_cols,
+    )
+    assert rssi_only.iloc[0]["AP1"] == -100.0
+    assert rssi_only.iloc[0]["AP2"] == -67.0
+    assert rssi_only.iloc[0]["accel_x"] == 0.0
+    assert rssi_only.iloc[0]["mag_heading"] == 0.0

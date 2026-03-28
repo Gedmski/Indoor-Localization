@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 import requests
 
 
-class LiveScan(TypedDict):
+class LiveScan(TypedDict, total=False):
     rssi: Dict[str, float]
     imu: Dict[str, float]
     top_k: int
@@ -57,7 +57,7 @@ class LocalizationClient:
     def _predict_url(self) -> str:
         return f"{self.base_url}/predict"
 
-    def predict(self, scan: Dict[str, Any], top_k: int = 3) -> LocalizationResult:
+    def predict(self, scan: LiveScan | Dict[str, Any], top_k: int = 3) -> LocalizationResult:
         payload = {
             "rssi": scan.get("rssi", {}),
             "imu": scan.get("imu", {}),

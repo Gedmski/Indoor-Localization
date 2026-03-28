@@ -36,6 +36,7 @@ No UJI multi-building training or XY regression is in the active runtime path.
    - `src/serve.py`
    - loads artifacts from `models/bldg10/`
    - exposes `POST /predict` and `GET /health`
+   - accepts RSSI-only, IMU-only, or combined inference payloads
 
 ## Commands
 
@@ -78,6 +79,7 @@ Use this project as a localization microservice:
 1. Collect live Wi-Fi scan and IMU readings from app/infrastructure.
 2. Convert scan to payload format:
    `{"rssi": {"AP1": ..., "AP2": ...}, "imu": {"accel_x": ..., "gyro_x": ..., "mag_heading": ...}, "top_k": 3}`.
+   You may omit `rssi` for motion-only input, omit `imu` for RSSI-only input, or send both. At least one modality must be present.
 3. Call `POST /predict`.
 4. Use response fields in navigation layer:
    - `building` -> building selector (always 10)
@@ -85,6 +87,8 @@ Use this project as a localization microservice:
    - `room_id` -> nearest node/anchor lookup in your map graph
    - `candidates` -> fallback for uncertain localization
 5. Apply your existing smoothing/map-matching and rerouting logic.
+
+Missing AP values are filled with `-100`. Missing IMU values are filled with `0.0`.
 
 ## Expected active repository layout
 
