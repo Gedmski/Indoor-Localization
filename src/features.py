@@ -1,183 +1,157 @@
 # src/features.py
-import numpy as np
+from typing import Iterable, List, Optional
+
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
-WAP_PREFIX = "WAP"
+from .data_io import IMU_COLUMNS
+
+AP_PREFIX = "AP"
+
+
+def _sorted_ap_columns(columns: Iterable[str]) -> List[str]:
+    ap_cols = [column for column in columns if column.startswith(AP_PREFIX)]
+
+    def _sort_key(column_name: str):
+        suffix = column_name[len(AP_PREFIX):]
+        if suffix.isdigit():
+            return (0, int(suffix))
+        return (1, suffix)
+
+    return sorted(ap_cols, key=_sort_key)
 
 
 class RssiCleaner(BaseEstimator, TransformerMixin):
-    """Clean and preprocess RSSI values."""
+    """Normalize RSSI values for model use."""
 
-    def __init__(self, missing_value=-100, fill_value=-110, min_rssi=-110,
-                 max_rssi=-30):
+    def __init__(
+        self,
+        missing_value: float = -100.0,
+        fill_value: float = -110.0,
+        min_rssi: float = -110.0,
+        max_rssi: float = -30.0,
+    ):
         self.missing_value = missing_value
         self.fill_value = fill_value
         self.min_rssi = min_rssi
         self.max_rssi = max_rssi
-        self.cols = None
+        self.ap_cols_: Optional[List[str]] = None
 
     def fit(self, X, y=None):
-        self.cols = [c for c in X.columns if c.startswith(WAP_PREFIX)]
+        self.ap_cols_ = _sorted_ap_columns(X.columns)
         return self
 
     def transform(self, X):
-        X = X.copy()
-        X[self.cols] = X[self.cols].replace(self.missing_value,
-                                            self.fill_value)
-        X[self.cols] = X[self.cols].clip(self.min_rssi, self.max_rssi)
-        return X
+        transformed = X.copy()
+        if not self.ap_cols_:
+            return transformed
+
+        ap_values = transformed[self.ap_cols_].apply(pd.to_numeric, errors="coerce")
+        ap_values = ap_values.fillna(self.missing_value)
+        ap_values = ap_values.replace(self.missing_value, self.fill_value)
+        ap_values = ap_values.clip(lower=self.min_rssi, upper=self.max_rssi)
+        transformed[self.ap_cols_] = ap_values
+        return transformed
 
 
-class APSelector(BaseEstimator, TransformerMixin):
-    """Select top-k access points by coverage and variance."""
+class ImuCleaner(BaseEstimator, TransformerMixin):
+    """Impute IMU columns using medians learned from training data."""
 
-    def __init__(self, coverage_min=0.02, top_k=200):
-        self.coverage_min = coverage_min
-        self.top_k = top_k
-        self.keep_cols = None
+    def __init__(self, imu_columns: Optional[List[str]] = None, fill_value: float = 0.0):
+        self.imu_columns = imu_columns
+        self.fill_value = fill_value
+        self.imu_cols_: Optional[List[str]] = None
+        self.medians_: Optional[dict[str, float]] = None
 
     def fit(self, X, y=None):
-        wap_cols = [c for c in X.columns if c.startswith(WAP_PREFIX)]
-        coverage = (X[wap_cols] > -110).mean().sort_values(ascending=False)
-        eligible = coverage[coverage >= self.coverage_min]
-        self.keep_cols = list(eligible.index[:self.top_k])
+        if self.imu_columns:
+            self.imu_cols_ = list(self.imu_columns)
+        else:
+            self.imu_cols_ = [column for column in IMU_COLUMNS if column in X.columns]
+
+        self.medians_ = {}
+        if not self.imu_cols_:
+            return self
+
+        imu_values = X[self.imu_cols_].apply(pd.to_numeric, errors="coerce")
+        medians = imu_values.median(numeric_only=True)
+
+        for column in self.imu_cols_:
+            median_value = medians.get(column, self.fill_value)
+            if pd.isna(median_value):
+                median_value = self.fill_value
+            self.medians_[column] = float(median_value)
         return self
 
     def transform(self, X):
-        return X[self.keep_cols]
+        transformed = X.copy()
+        if not self.imu_cols_:
+            return transformed
+
+        for column in self.imu_cols_:
+            if column not in transformed.columns:
+                transformed[column] = self.fill_value
+
+        imu_values = transformed[self.imu_cols_].apply(pd.to_numeric, errors="coerce")
+        for column in self.imu_cols_:
+            fallback = (
+                self.medians_.get(column, self.fill_value) if self.medians_ else self.fill_value
+            )
+            imu_values[column] = imu_values[column].fillna(fallback)
+
+        transformed[self.imu_cols_] = imu_values
+        return transformed
 
 
-class AdvancedFeatureEngineer(BaseEstimator, TransformerMixin):
-    """Advanced feature engineering with signal patterns and statistics."""
+class FeatureColumnSelector(BaseEstimator, TransformerMixin):
+    """Select and order AP + IMU columns, filling missing values for inference."""
 
-    def __init__(self, rssi_threshold=-85, n_quantiles=5):
-        self.rssi_threshold = rssi_threshold
-        self.n_quantiles = n_quantiles
-        self.wap_cols = None
+    def __init__(
+        self,
+        required_columns: Optional[List[str]] = None,
+        ap_missing_fill_value: float = -100.0,
+        imu_missing_fill_value: float = 0.0,
+    ):
+        self.required_columns = required_columns
+        self.ap_missing_fill_value = ap_missing_fill_value
+        self.imu_missing_fill_value = imu_missing_fill_value
+        self.keep_cols_: Optional[List[str]] = None
 
     def fit(self, X, y=None):
-        self.wap_cols = [c for c in X.columns if c.startswith(WAP_PREFIX)]
+        if self.required_columns:
+            self.keep_cols_ = list(self.required_columns)
+        else:
+            ap_cols = _sorted_ap_columns(X.columns)
+            imu_cols = [column for column in IMU_COLUMNS if column in X.columns]
+            self.keep_cols_ = ap_cols + imu_cols
         return self
 
     def transform(self, X):
-        X = X.copy()
+        transformed = X.copy()
+        keep_cols = self.keep_cols_ or []
+        for column in keep_cols:
+            if column not in transformed.columns:
+                if column.startswith(AP_PREFIX):
+                    transformed[column] = self.ap_missing_fill_value
+                elif column in IMU_COLUMNS:
+                    transformed[column] = self.imu_missing_fill_value
+                else:
+                    transformed[column] = 0.0
 
-        # Basic features
-        rssi_values = X[self.wap_cols].replace(-110, np.nan)
+        ap_cols = [column for column in keep_cols if column.startswith(AP_PREFIX)]
+        imu_cols = [column for column in keep_cols if column in IMU_COLUMNS]
 
-        # Count features
-        X['ap_count'] = (X[self.wap_cols] > self.rssi_threshold).sum(axis=1)
-        X['ap_count_strong'] = (X[self.wap_cols] > -70).sum(axis=1)
+        if ap_cols:
+            transformed[ap_cols] = (
+                transformed[ap_cols]
+                .apply(pd.to_numeric, errors="coerce")
+                .fillna(self.ap_missing_fill_value)
+            )
+        if imu_cols:
+            transformed[imu_cols] = (
+                transformed[imu_cols]
+                .apply(pd.to_numeric, errors="coerce")
+                .fillna(self.imu_missing_fill_value)
+            )
 
-        # RSSI statistics
-        X['rssi_mean'] = rssi_values.mean(axis=1, skipna=True)
-        X['rssi_median'] = rssi_values.median(axis=1, skipna=True)
-        X['rssi_max'] = rssi_values.max(axis=1, skipna=True)
-        X['rssi_min'] = rssi_values.min(axis=1, skipna=True)
-        X['rssi_std'] = rssi_values.std(axis=1, skipna=True)
-        X['rssi_range'] = X['rssi_max'] - X['rssi_min']
-
-        # Signal strength distribution
-        for i in range(self.n_quantiles):
-            quantile = (i + 1) / self.n_quantiles
-            X[f'rssi_q{int(quantile*100)}'] = rssi_values.quantile(
-                quantile, axis=1, numeric_only=True)
-
-        # Signal variability measures
-        X['rssi_cv'] = X['rssi_std'] / X['rssi_mean'].abs()  # Coefficient of variation
-        X['rssi_skew'] = rssi_values.skew(axis=1, skipna=True)
-        X['rssi_kurtosis'] = rssi_values.kurtosis(axis=1, skipna=True)
-
-        # AP density features
-        strong_signals = (X[self.wap_cols] > -70).sum(axis=1)
-        weak_signals = ((X[self.wap_cols] <= -70) &
-                       (X[self.wap_cols] > -110)).sum(axis=1)
-        X['signal_ratio'] = strong_signals / (weak_signals + 1)  # Avoid division by zero
-
-        # Fill NaN values
-        fill_cols = [c for c in X.columns if c.startswith(('rssi_', 'ap_count', 'signal_'))]
-        X[fill_cols] = X[fill_cols].fillna(0)
-
-        return X
-
-
-class SignalPatternExtractor(BaseEstimator, TransformerMixin):
-    """Extract signal patterns and temporal-like features."""
-
-    def __init__(self, n_clusters=10, random_state=42):
-        self.n_clusters = n_clusters
-        self.random_state = random_state
-        self.wap_cols = None
-        self.cluster_centers_ = None
-
-    def fit(self, X, y=None):
-        self.wap_cols = [c for c in X.columns if c.startswith(WAP_PREFIX)]
-
-        # Simple clustering of RSSI patterns (could use K-means)
-        # For now, just store the median pattern per "cluster"
-        from sklearn.cluster import KMeans
-        rssi_data = X[self.wap_cols].values
-        kmeans = KMeans(n_clusters=self.n_clusters,
-                       random_state=self.random_state, n_init=10)
-        kmeans.fit(rssi_data)
-        self.cluster_centers_ = kmeans.cluster_centers_
-
-        return self
-
-    def transform(self, X):
-        X = X.copy()
-
-        # Add cluster membership features (simplified)
-        rssi_data = X[self.wap_cols].values
-
-        # Compute distance to each cluster center
-        for i in range(self.n_clusters):
-            distances = np.linalg.norm(rssi_data - self.cluster_centers_[i], axis=1)
-            X[f'pattern_dist_{i}'] = distances
-
-        # Add the closest cluster
-        min_distances = np.min([
-            np.linalg.norm(rssi_data - center, axis=1)
-            for center in self.cluster_centers_
-        ], axis=0)
-        X['pattern_closest_dist'] = min_distances
-
-        return X
-
-
-if __name__ == "__main__":
-    # Quick test
-    import os
-    from data_io import load_uji
-
-    train_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                              "TrainingData.csv")
-    val_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                            "ValidationData.csv")
-    train, _ = load_uji(train_path, val_path)
-
-    # Test RSSI cleaner
-    cleaner = RssiCleaner()
-    train_clean = cleaner.fit_transform(train)
-    print("RSSI cleaning:")
-    missing_before = (train[cleaner.cols] == -100).sum().sum()
-    print(f"Missing values before: {missing_before}")
-    missing_after = (train_clean[cleaner.cols] == -100).sum().sum()
-    print(f"Missing values after: {missing_after}")
-    print(f"Min RSSI: {train_clean[cleaner.cols].min().min()}")
-    print(f"Max RSSI: {train_clean[cleaner.cols].max().max()}")
-
-    # Test AP selector
-    selector = APSelector(coverage_min=0.01, top_k=50)
-    train_selected = selector.fit_transform(train_clean)
-    print(f"\nAP selection: {len(selector.keep_cols)} APs selected")
-    print(f"Coverage of selected APs: {train_selected.mean().describe()}")
-
-    # Test feature engineer
-    engineer = FeatureEngineer()
-    train_features = engineer.fit_transform(train_selected)
-    print(f"\nFeature engineering: {train_features.shape[1]} features")
-    print("New features:")
-    features_desc = train_features[['ap_count', 'rssi_mean',
-                                    'rssi_median', 'rssi_max']].describe()
-    print(features_desc)
+        return transformed[keep_cols]

@@ -1,11 +1,9 @@
 numpy
 pandas
 scikit-learn
-xgboost
 fastapi
 uvicorn
 joblib
-pyproj
 matplotlib
 seaborn
-jupyter
+requests

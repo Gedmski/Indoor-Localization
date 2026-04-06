@@ -1,0 +1,15 @@
+[
+  {
+    "floor_plan": "level2_floorplan [page 1]",
+    "source_path": "/Users/pyeshuajs23/Documents/Capstone/level2_floorplan.pdf",
+    "walls_mask": "level2_floorplan__page_1__walls.png",
+    "walkable_mask": "level2_floorplan__page_1__walkable.png",
+    "width": 4768,
+    "height": 3368,
+    "grid_spacing": 40,
+    "origin": {
+      "x": 3303.0,
+      "y": 1842.0
+    }
+  }
+]

@@ -1,34 +1,91 @@
-# src/data_io.py
+from pathlib import Path
+from typing import Iterable, List, Mapping
+
 import pandas as pd
 
 
-def load_uji(train_path: str, val_path: str):
-    """Load UJIIndoorLoc training and validation datasets.
+AP_PREFIX = "AP"
+IMU_COLUMNS = [
+    "accel_x",
+    "accel_y",
+    "accel_z",
+    "gyro_x",
+    "gyro_y",
+    "gyro_z",
+    "mag_x",
+    "mag_y",
+    "mag_z",
+    "mag_heading",
+]
+DEFAULT_BLDG10_PATH = Path("data") / "bldg10" / "final_data.csv"
+BUILDING_ID = 10
 
-    Args:
-        train_path: Path to TrainingData.csv
-        val_path: Path to ValidationData.csv
 
-    Returns:
-        Tuple of (train_df, val_df) pandas DataFrames
-    """
-    train = pd.read_csv(train_path)
-    val = pd.read_csv(val_path)
-    return train, val
+def sorted_ap_columns(columns: Iterable[str]) -> List[str]:
+    """Return AP columns in numeric order: AP1, AP2, ..."""
+    ap_cols = [column for column in columns if column.startswith(AP_PREFIX)]
+
+    def _ap_sort_key(column_name: str):
+        suffix = column_name[len(AP_PREFIX):]
+        if suffix.isdigit():
+            return (0, int(suffix))
+        return (1, suffix)
+
+    return sorted(ap_cols, key=_ap_sort_key)
 
 
-if __name__ == "__main__":
-    # Quick test
-    import os
-    print(f"Current working directory: {os.getcwd()}")
-    train_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                              "TrainingData.csv")
-    val_path = os.path.join(os.path.dirname(__file__), "..", "data",
-                            "ValidationData.csv")
-    print(f"Train path: {os.path.abspath(train_path)}")
-    print(f"Val path: {os.path.abspath(val_path)}")
-    train, val = load_uji(train_path, val_path)
-    print(f"Training shape: {train.shape}, Validation shape: {val.shape}")
-    print(f"Training columns (first 10): {train.columns[:10].tolist()}")
-    print("Training BUILDINGID, FLOOR, LATITUDE, LONGITUDE describe:")
-    print(train[['BUILDINGID', 'FLOOR', 'LATITUDE', 'LONGITUDE']].describe())
+def load_bldg10(final_data_path: str | Path = DEFAULT_BLDG10_PATH) -> pd.DataFrame:
+    """Load and standardize the Building 10 dataset."""
+    data_path = Path(final_data_path)
+    if not data_path.exists():
+        raise FileNotFoundError(f"Building 10 dataset not found: {data_path}")
+
+    df = pd.read_csv(data_path)
+
+    required_columns = {"floor", "room_id", *IMU_COLUMNS}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        missing_list = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Missing required columns in dataset: {missing_list}")
+
+    ap_cols = sorted_ap_columns(df.columns)
+    if not ap_cols:
+        raise ValueError("No AP columns were found (expected AP1..AP178).")
+
+    normalized = df.copy()
+    normalized.loc[:, ap_cols] = (
+        normalized.loc[:, ap_cols].apply(pd.to_numeric, errors="coerce").fillna(-100.0)
+    )
+    normalized.loc[:, IMU_COLUMNS] = normalized.loc[:, IMU_COLUMNS].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    normalized = normalized.assign(
+        FLOOR=normalized["floor"].astype(int),
+        ROOMID=normalized["room_id"].astype(str),
+        BUILDINGID=BUILDING_ID,
+    )
+    return normalized
+
+
+def build_inference_frame(
+    rssi_scan: Mapping[str, float] | None,
+    imu_values: Mapping[str, float] | None,
+    ap_columns: List[str],
+    imu_columns: List[str],
+    ap_missing_value: float = -100.0,
+    imu_missing_value: float = 0.0,
+) -> pd.DataFrame:
+    """Create a one-row feature frame from RSSI, IMU, or combined inputs."""
+    rssi_scan = dict(rssi_scan or {})
+    imu_values = dict(imu_values or {})
+    row = {
+        ap_name: float(rssi_scan.get(ap_name, ap_missing_value)) for ap_name in ap_columns
+    }
+    row.update(
+        {
+            imu_name: float(imu_values.get(imu_name, imu_missing_value))
+            for imu_name in imu_columns
+        }
+    )
+    feature_columns = ap_columns + imu_columns
+    return pd.DataFrame([row], columns=feature_columns)
